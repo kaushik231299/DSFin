@@ -1,0 +1,165 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import yfinance as yf
+import statsmodels.api as sm
+import matplotlib.pyplot as plt
+
+# Step 1: Get the list of S&P 500 tickers
+url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+table = pd.read_html(url)
+sp500_tickers = table[0]['Symbol'].tolist()
+
+print(f"Number of S&P 500 tickers: {len(sp500_tickers)}")
+
+
+# Step 2: Download historical stock price data
+def download_data(tickers, start, end):
+    valid_tickers = []
+    data = {}
+    for ticker in tickers:
+        try:
+            df = yf.download(ticker, start=start, end=end, interval='1mo')['Adj Close']
+            if not df.empty:
+                valid_tickers.append(ticker)
+                data[ticker] = df
+        except Exception as e:
+            print(f"Failed to download data for {ticker}: {e}")
+    return pd.DataFrame(data), valid_tickers
+
+
+# Download historical stock prices from Yahoo Finance
+start_date = '2000-01-01'
+end_date = '2023-12-31'
+data, valid_tickers = download_data(sp500_tickers, start_date, end_date)
+
+print(f"Number of valid tickers: {len(valid_tickers)}")
+
+# Ensure all tickers have data for the same dates
+data = data.dropna(axis=1, how='all')
+
+# Step 3: Calculate monthly returns
+monthly_returns = data.pct_change().fillna(0)
+
+# Step 4: Calculate rolling 12-month return volatility
+volatility = monthly_returns.rolling(window=12).std()
+
+
+# Step 5: Assign deciles each month based on volatility
+def assign_decile(vol):
+    return pd.qcut(vol, 10, labels=False) + 1
+
+
+deciles = volatility.apply(assign_decile, axis=1).dropna(how='all')
+
+
+# Step 6: Calculate the average return for each decile portfolio each month
+def calc_portfolio_returns(returns, deciles):
+    portfolios = {}
+    for date in deciles.index:
+        if date in returns.index:
+            returns_on_date = returns.loc[date]
+            deciles_on_date = deciles.loc[date]
+            for decile in range(1, 11):
+                if decile not in portfolios:
+                    portfolios[decile] = []
+                decile_returns = returns_on_date[deciles_on_date == decile]
+                portfolios[decile].append(decile_returns.mean())
+    return portfolios
+
+
+portfolio_returns = calc_portfolio_returns(monthly_returns, deciles)
+
+# Convert portfolio returns to DataFrame
+portfolio_returns_df = pd.DataFrame(portfolio_returns, index=deciles.index)
+
+# Step 7: Plot the portfolio returns
+plt.figure(figsize=(12, 8))
+for decile in portfolio_returns_df.columns:
+    plt.plot(portfolio_returns_df.index, portfolio_returns_df[decile], label=f'Decile {decile}')
+
+plt.title('Decile Portfolio Returns Based on Volatility')
+plt.xlabel('Date')
+plt.ylabel('Average Return')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Step 8: Sentiment Betas: Cross-Sectional Effects of Sentiment Changes
+# Example proxy data for sentiment index and ETF flows
+dates = pd.date_range(start='2000-01-01', end='2023-12-31', freq='M')
+np.random.seed(0)
+sentiment_index = np.random.normal(size=len(dates))
+etf_flows = np.random.normal(size=len(dates))
+
+# Convert to DataFrame
+proxy_data = pd.DataFrame({'SentimentIndex': sentiment_index, 'ETFFlows': etf_flows}, index=dates)
+
+# Run regressions and plot coefficients
+results = {}
+
+for decile in range(1, 11):
+    y = portfolio_returns_df[decile]
+    X = proxy_data[['SentimentIndex', 'ETFFlows']]
+    X['MarketReturn'] = portfolio_returns_df['MarketReturn']
+    X = sm.add_constant(X)
+
+    model = sm.OLS(y, X).fit()
+    results[decile] = model.params
+
+# Convert results to DataFrame
+coefficients_df = pd.DataFrame(results).T
+
+# Plot coefficients for SentimentIndex and ETFFlows
+plt.figure(figsize=(12, 8))
+for col in ['SentimentIndex', 'ETFFlows']:
+    plt.plot(coefficients_df.index, coefficients_df[col], label=col)
+
+plt.title('Coefficients on Sentiment Indices and ETF Flows')
+plt.xlabel('Decile Portfolio')
+plt.ylabel('Coefficient')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+######## ETF PART ######
+
+# Example proxy data
+dates = pd.date_range(start='2000-01-01', end='2023-12-31', freq='M')
+np.random.seed(0)
+sentiment_index = np.random.normal(size=len(dates))
+etf_flows = np.random.normal(size=len(dates))
+
+# Convert to DataFrame
+proxy_data = pd.DataFrame({'SentimentIndex': sentiment_index, 'ETFFlows': etf_flows}, index=dates)
+
+# portfolio_returns_df already contains returns of 10 portfolios
+# Add value-weighted market return (assuming market_returns is a Series)
+market_returns = np.random.normal(size=len(dates))  # Replace with actual market return data
+portfolio_returns_df['MarketReturn'] = market_returns
+
+results = {}
+
+for decile in range(1, 11):
+    y = portfolio_returns_df[decile]
+    X = proxy_data[['SentimentIndex', 'ETFFlows']]
+    X['MarketReturn'] = portfolio_returns_df['MarketReturn']
+    X = sm.add_constant(X)
+
+    model = sm.OLS(y, X).fit()
+    results[decile] = model.params
+
+# Convert results to DataFrame
+coefficients_df = pd.DataFrame(results).T
+
+# Plot coefficients for SentimentIndex and ETFFlows
+plt.figure(figsize=(12, 8))
+for col in ['SentimentIndex', 'ETFFlows']:
+    plt.plot(coefficients_df.index, coefficients_df[col], label=col)
+
+plt.title('Coefficients on Sentiment Indices and ETF Flows')
+plt.xlabel('Decile Portfolio')
+plt.ylabel('Coefficient')
+plt.legend()
+plt.grid(True)
+plt.show()
