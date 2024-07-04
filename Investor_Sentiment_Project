@@ -46,8 +46,23 @@ volatility = monthly_returns.rolling(window=12).std()
 
 
 # Step 5: Assign deciles each month based on volatility
+# Sample function to assign deciles
 def assign_decile(vol):
-    return pd.qcut(vol, 10, labels=False) + 1
+    # Drop NaN values
+    vol = vol.dropna()
+    # Check if there are enough unique values to create deciles
+    if len(vol.unique()) < 10:
+        # Handle the case where there are not enough unique values
+        return pd.Series([pd.NA] * len(vol), index=vol.index)
+    return pd.qcut(vol, 10, labels=False, duplicates='drop') + 1
+
+# Assuming 'volatility' is your DataFrame
+# Apply the assign_decile function row-wise
+deciles = volatility.apply(assign_decile, axis=1).dropna(how='all')
+
+# Assuming 'volatility' is your DataFrame
+# Apply the assign_decile function row-wise
+deciles = volatility.apply(assign_decile, axis=1).dropna(how='all')
 
 
 deciles = volatility.apply(assign_decile, axis=1).dropna(how='all')
