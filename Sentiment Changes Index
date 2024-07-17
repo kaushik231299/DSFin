@@ -1,0 +1,85 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+import numpy as np
+import yfinance as yf
+from datetime import datetime
+from sklearn.linear_model import LinearRegression
+
+# Load the dataset
+file_path = '/Users/kaushikpurahoo/Downloads//SENTIMENT_copy.xlsx'
+data = pd.read_excel(file_path, sheet_name='Sheet1')
+
+# Remove rows with missing sentiment data
+data.dropna(inplace=True)
+
+# Inspect the data
+#print(data.head())
+
+# add new columns for determining change from previous period using .diff()
+data['pdnd_change'] = data['pdnd'].diff()
+data['ripo_change'] = data['ripo'].diff()
+data['nipo_change'] = data['nipo'].diff()
+data['cefd_change'] = data['cefd'].diff()
+data['s_change'] = data['s'].diff()
+
+# Drop the first row since it will have NaN values for the changes
+data.dropna(subset=['pdnd_change', 'ripo_change', 'nipo_change', 'cefd_change', 's_change'], inplace=True)
+
+# Inspect the data with new columns
+#print(data.head())
+
+# Assuming 'data' already contains the required columns: 'yearmo', 'SENT', 'CEFD', 'NIPO', 'RIPO', 'PDND', 'S'
+
+# Convert 'yearmo' to datetime format if not already done
+data['yearmo'] = pd.to_datetime(data['yearmo'], format='%Y%m')
+
+# Prepare the data for linear regression
+X_one = data[['cefd', 'nipo', 'ripo', 'pdnd', 's']].values
+y_one = data['SENT'].values
+
+# Perform linear regression
+regression = LinearRegression(fit_intercept=False).fit(X_one, y_one)
+
+# Extracting coefficients
+coefficients = regression.coef_
+
+# Creating the regression equation string
+equation = f'SENT = {coefficients[0]:.4f} * cefd + {coefficients[1]:.4f} * nipo + {coefficients[2]:.4f} * ripo + {coefficients[3]:.4f} * pdnd + {coefficients[4]:.4f} * s'
+print("Linear Regression Equation for SENT:")
+print(equation)
+
+# Convert 'yearmo' to a numerical format for regression
+data['yearmo'] = pd.to_numeric(data['yearmo'])
+
+# Prepare the data
+X_two = data[['pdnd_change', 'ripo_change', 'nipo_change', 'cefd_change', 's_change', 'yearmo']]
+y_two = data['SentimentChangesIndex']
+
+# Standardize or normalize predictor variables
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(data[['pdnd_change', 'ripo_change', 'nipo_change', 'cefd_change', 's_change', 'yearmo']])
+
+# Fit linear regression model
+model = LinearRegression(fit_intercept=False)  # No intercept
+model.fit(X_scaled, y_two)
+
+# Get coefficients
+coefficients = model.coef_
+
+# Creating the regression equation string
+equation_two = f'SentimentChangesIndex = {coefficients[0]:.4f} * pdnd_change + {coefficients[1]:.4f} * ripo_change + {coefficients[2]:.4f} * cefd_change + {coefficients[3]:.4f} * s_change'
+print("Linear Regression Equation for SENT changes:")
+print(equation_two)
+
+# Plot SentimentChangesIndex versus yearmo
+plt.figure(figsize=(10, 6))
+plt.plot(data['yearmo'], data['SentimentChangesIndex'], marker='o', linestyle='-', color='b', markersize=3)
+plt.title('Sentiment Changes Index over Time')
+plt.xlabel('Year-Month (yearmo)')
+plt.ylabel('Sentiment Changes Index')
+plt.xticks(rotation=45)
+plt.grid(True)
+plt.tight_layout()
+plt.show()
