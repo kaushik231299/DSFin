@@ -1,0 +1,108 @@
+import pandas as pd
+import yfinance as yf
+from datetime import datetime
+from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+from sklearn.linear_model import LinearRegression
+import numpy as np
+
+
+# Define ETF symbols for each category
+etf_symbols = {
+    "Aggressive Growth": ["QQQ"],
+    "Growth": ["VUG"],
+    "Balanced": ["SUSA"],
+    "Growth and Income": ["DGRO"],
+    "Sector": ["XLV"],
+    "Income Equity": ["SCHD"],
+    "Income Mixed": ["MDIV"],
+    "Asset Allocation": ["ACWI"]
+}
+
+
+#general_etfs_symbols = ["VTI"]
+#speculative_etfs_symbols = ["ARKK"]
+
+# Function to download historical data for ETFs
+def download_etf_data(symbols, start_date="1990-01-01", end_date="2023-12-31"):
+    data_frames = []
+    for category, sym_list in symbols.items():
+        for symbol in sym_list:
+            df = yf.download(symbol, start=start_date, end=end_date, interval="1mo")
+            df['Symbol'] = symbol
+            df['Category'] = category
+            data_frames.append(df)
+    return pd.concat(data_frames)
+
+# Function to calculate monthly changes and fund flow proxy
+def calculate_fund_flows(data):
+    data['CloseChange'] = data['Close'].diff()
+    data['VolumeChange'] = data['Volume'].diff()
+    data['FundFlowProxy'] = data['CloseChange'] * data['VolumeChange']
+    return data
+
+# Function to standardize a column
+def standardize_column(data, column_name):
+    scaler = StandardScaler()
+    data[column_name + '_Standardized'] = scaler.fit_transform(data[[column_name]])
+    return data
+
+# Download data for each ETF category
+etfs_data = download_etf_data(etf_symbols)
+
+# Calculate monthly changes in closing price and volume
+etfs_data['CloseChange'] = etfs_data.groupby('Symbol')['Close'].diff()
+etfs_data['VolumeChange'] = etfs_data.groupby('Symbol')['Volume'].diff()
+
+# Calculate fund flow proxy
+etfs_data['FundFlowProxy'] = etfs_data['CloseChange'] * etfs_data['VolumeChange']
+
+# Pivot the data to get fund flow proxies in columns by category
+fund_flows_pivot = etfs_data.pivot_table(values='FundFlowProxy', index='Date', columns='Category', aggfunc='sum')
+
+# Standardize the fund flows
+scaler = StandardScaler()
+standardized_flows = scaler.fit_transform(fund_flows_pivot.fillna(0))
+
+# Perform PCA
+pca = PCA(n_components=2)
+pca.fit(standardized_flows)
+principal_components = pca.transform(standardized_flows)
+
+# Get the contributions of each category to the first two principal components
+loadings = pca.components_
+
+# Create a DataFrame for the loadings
+loadings_df = pd.DataFrame(loadings.T, index=fund_flows_pivot.columns, columns=['General', 'Speculative'])
+
+# Define the order for ETF categories
+order = ["Aggressive Growth", "Growth", "Balanced", "Growth and Income", "Sector", "Income Equity", "Income Mixed", "Asset Allocation"]
+
+# Sort loadings_df according to the order of ETF categories in descending order
+loadings_df = loadings_df.loc[order[::-1]]
+
+# Create subplots individually
+fig, ax1 = plt.subplots(figsize=(10, 6))
+
+# Plot for the General demand component
+loadings_df['General'].sort_values(ascending=False).plot(kind='bar', ax=ax1, color='purple')
+ax1.set_title('Impact on General Demand (PC1)')
+ax1.set_ylabel('Contribution to Principal Component')
+ax1.set_xticklabels(loadings_df.index, rotation=45, ha='right')
+
+plt.tight_layout()
+plt.show()
+
+# Create another subplot for the Speculative demand component
+fig, ax2 = plt.subplots(figsize=(10, 6))
+
+# Plot for the Speculative demand component
+loadings_df['Speculative'].sort_values(ascending=False).plot(kind='bar', ax=ax2, color='purple')
+ax2.set_title('Impact on Speculative Demand (PC2)')
+ax2.set_xlabel('ETF Category')
+ax2.set_ylabel('Contribution to Principal Component')
+ax2.set_xticklabels(loadings_df.index, rotation=45, ha='right')
+
+plt.tight_layout()
+plt.show()
