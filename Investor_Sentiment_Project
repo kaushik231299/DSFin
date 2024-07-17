@@ -151,3 +151,85 @@ def plot_decile_cumulative_returns(decile_returns, title):
     plt.legend()
     plt.show()
 
+# Define ETF symbols for each category
+etf_categories = {
+    "Aggressive Growth": ["QQQ"],
+    "Growth": ["VUG"],
+    "Balanced": ["SUSA"],
+    "Growth and Income": ["DGRO"],
+    "Sector": ["XLV"],
+    "Income Equity": ["SCHD"],
+    "Income Mixed": ["MDIV"],
+    "Asset Allocation": ["ACWI"]
+}
+
+# Update ETF tickers list based on new categories
+etf_tickers = [ticker for sublist in etf_categories.values() for ticker in sublist]
+
+# Fetch ETF data from Yahoo Finance
+etfs_data = yf.download(etf_tickers, start="1986-01-01", end="2024-12-31", interval='1mo').dropna()
+
+# Get adjusted close prices and trading volumes
+adj_close = etfs_data['Adj Close']
+volume = etfs_data['Volume']
+
+# Calculate ETF flows as proxy: Price * Volume
+MDV = adj_close * volume
+etf_flow = MDV.diff()
+
+# Calculate changes in flow
+flow_changes = etf_flow.diff()
+
+# Standardize the changes in fund flows data
+scaler = StandardScaler()
+flow_changes_standardized = scaler.fit_transform(flow_changes.dropna())
+
+# Perform PCA on the standardized changes in fund flows data
+pca = PCA(n_components=2)
+principal_components = pca.fit_transform(flow_changes_standardized)
+
+# Get the loadings for the first two principal components
+loadings = pca.components_.T * np.sqrt(pca.explained_variance_)
+
+# Create a DataFrame with loadings
+etf_labels = [key for key in etf_categories.keys()]
+loadings_df = pd.DataFrame(loadings, columns=['General Demand (PC1)', 'Speculative Demand (PC2)'], index=etf_labels)
+print(loadings_df)
+
+
+# Multiply loadings by -1 to reverse the trend
+#loadings_df['General Demand (PC1)'] *= -1
+#loadings_df['Speculative Demand (PC2)'] *= -1
+
+# Data preparation
+etf_labels = loadings_df.index
+pc1_values = loadings_df['General Demand (PC1)']
+pc2_values = loadings_df['Speculative Demand (PC2)']
+
+# Sort the values for plotting (highest y-value to the leftmost)
+pc1_sorted_indices = pc1_values.argsort()[::-1]  # Sort indices in descending order of PC1 values
+pc1_sorted_labels = [etf_labels[i] for i in pc1_sorted_indices]
+pc1_sorted_values = [pc1_values[i] for i in pc1_sorted_indices]
+
+pc2_sorted_indices = pc2_values.argsort()[::-1]  # Sort indices in descending order of PC2 values
+pc2_sorted_labels = [etf_labels[i] for i in pc2_sorted_indices]
+pc2_sorted_values = [pc2_values[i] for i in pc2_sorted_indices]
+
+# Plotting the first bar chart (PC1)
+plt.figure(figsize=(10, 6))
+plt.barh(pc1_sorted_labels, pc1_sorted_values, color='skyblue')
+plt.xlabel('General Demand (PC1)')
+plt.title('Principal Component 1 - General Demand')
+plt.gca().invert_yaxis()  # Invert y-axis to have highest value on the left
+plt.tight_layout()
+plt.show()
+
+# Plotting the second bar chart (PC2)
+plt.figure(figsize=(10, 6))
+plt.barh(pc2_sorted_labels, pc2_sorted_values, color='lightgreen')
+plt.xlabel('Speculative Demand (PC2)')
+plt.title('Principal Component 2 - Speculative Demand')
+plt.gca().invert_yaxis()  # Invert y-axis to have highest value on the left
+plt.tight_layout()
+plt.show()
+
