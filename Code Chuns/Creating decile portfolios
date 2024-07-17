@@ -1,0 +1,70 @@
+# List of tickers
+tickers = {'AMD', 'AAPL', 'INTC', 'ADI', 'JNJ', 'PFE', 'MRK', 'BMY', 'LLY', 'RF', 'JPM',
+               'BAC', 'C', 'WFC', 'USB', 'PNC', 'HBAN', 'FITB', 'CLX', 'HRL', 'PG', 'KO', 'PEP',
+               'K', 'CAG', 'LANC', 'CPB', 'SWK', 'BA', 'CAT', 'GE', 'PH', 'GGG', 'ITW', 'ALE',
+               'NEE', 'DUK', 'ED', 'AEP', 'XEL', 'BKH', 'WEC', 'MRO', 'XOM', 'CVX', 'HES', 'MUR'}
+
+# Fetch historical data
+data = yf.download(tickers, start="1980-01-01", end="2023-12-31", interval='1mo')['Adj Close']
+
+# Calculate monthly returns
+returns = data.pct_change()
+
+stock_returns = returns.dropna()
+
+# Define a function to calculate rolling volatility
+def calculate_rolling_volatility(returns, window=12):
+    return returns.rolling(window=window).std()
+
+# Calculate rolling 12-month volatility
+rolling_volatility = calculate_rolling_volatility(stock_returns)
+
+# Function to create decile portfolios based on rolling volatility
+def create_decile_portfolios(returns, rolling_volatility):
+    decile_portfolios = {}
+    for date in rolling_volatility.index:
+        # Get volatility for the date
+        volatilities = rolling_volatility.loc[date].dropna()
+        if len(volatilities) == 0:
+            continue
+        # Sort stocks by volatility
+        sorted_stocks = volatilities.sort_values()
+        # Determine the decile breakpoints
+        deciles = np.array_split(sorted_stocks.index, 10)
+        # Assign stocks to decile portfolios
+        decile_assignment = {i+1: decile for i, decile in enumerate(deciles)}
+        decile_portfolios[date] = decile_assignment
+    return decile_portfolios
+
+# Create decile portfolios
+decile_portfolios = create_decile_portfolios(returns, rolling_volatility)
+
+# Function to calculate equal-weighted returns for decile portfolios
+def calculate_decile_equal_weighted_returns(returns, decile_portfolios):
+    decile_returns = {i: [] for i in range(1, 11)}
+    for date, deciles in decile_portfolios.items():
+        for decile, stocks in deciles.items():
+            decile_returns[decile].append(returns.loc[date, stocks].mean())
+    decile_returns = pd.DataFrame(decile_returns, index=decile_portfolios.keys())
+    return decile_returns
+
+# Calculate decile portfolio equal-weighted returns
+decile_equal_weighted_returns = calculate_decile_equal_weighted_returns(returns, decile_portfolios)
+
+# Plot cumulative returns for decile portfolios
+def plot_decile_cumulative_returns(decile_returns, title):
+    cumulative_returns = (1 + decile_returns).cumprod()
+    plt.figure(figsize=(14, 7))
+    for decile in cumulative_returns.columns:
+        plt.plot(cumulative_returns.index, cumulative_returns[decile], label=f'Decile {decile}')
+    plt.title(title)
+    plt.xlabel('Date')
+    plt.ylabel('Cumulative Return')
+    plt.legend()
+    plt.show()
+
+# Visualize the decile portfolio equal-weighted returns
+# plot_decile_cumulative_returns(decile_equal_weighted_returns, 'Cumulative Returns of Equal-Weighted Decile Portfolios')
+
+
+## Iterate over each decile portfolio
