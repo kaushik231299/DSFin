@@ -1,180 +1,85 @@
 import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 import numpy as np
-import matplotlib.pyplot as plt
 import yfinance as yf
-import statsmodels.api as sm
-import matplotlib.pyplot as plt
+from datetime import datetime
+from sklearn.linear_model import LinearRegression
 
-# Step 1: Get the list of S&P 500 tickers
-url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
-table = pd.read_html(url)
-sp500_tickers = table[0]['Symbol'].tolist()
+# Load the dataset
+file_path = '/Users/kaushikpurahoo/Downloads//SENTIMENT_copy.xlsx'
+data = pd.read_excel(file_path, sheet_name='Sheet1')
 
-print(f"Number of S&P 500 tickers: {len(sp500_tickers)}")
+# Remove rows with missing sentiment data
+data.dropna(inplace=True)
 
+# Inspect the data
+#print(data.head())
 
-# Step 2: Download historical stock price data
-def download_data(tickers, start, end):
-    valid_tickers = []
-    data = {}
-    for ticker in tickers:
-        try:
-            df = yf.download(ticker, start=start, end=end, interval='1mo')['Adj Close']
-            if not df.empty:
-                valid_tickers.append(ticker)
-                data[ticker] = df
-        except Exception as e:
-            print(f"Failed to download data for {ticker}: {e}")
-    return pd.DataFrame(data), valid_tickers
+# add new columns for determining change from previous period using .diff()
+data['pdnd_change'] = data['pdnd'].diff()
+data['ripo_change'] = data['ripo'].diff()
+data['nipo_change'] = data['nipo'].diff()
+data['cefd_change'] = data['cefd'].diff()
+data['s_change'] = data['s'].diff()
 
+# Drop the first row since it will have NaN values for the changes
+data.dropna(subset=['pdnd_change', 'ripo_change', 'nipo_change', 'cefd_change', 's_change'], inplace=True)
 
-# Download historical stock prices from Yahoo Finance
-start_date = '2000-01-01'
-end_date = '2023-12-31'
-data, valid_tickers = download_data(sp500_tickers, start_date, end_date)
+# Inspect the data with new columns
+#print(data.head())
 
-print(f"Number of valid tickers: {len(valid_tickers)}")
+# Assuming 'data' already contains the required columns: 'yearmo', 'SENT', 'CEFD', 'NIPO', 'RIPO', 'PDND', 'S'
 
-# Ensure all tickers have data for the same dates
-data = data.dropna(axis=1, how='all')
+# Convert 'yearmo' to datetime format if not already done
+data['yearmo'] = pd.to_datetime(data['yearmo'], format='%Y%m')
 
-# Step 3: Calculate monthly returns
-monthly_returns = data.pct_change().fillna(0)
+# Prepare the data for linear regression
+X_one = data[['cefd', 'nipo', 'ripo', 'pdnd', 's']].values
+y_one = data['SENT'].values
 
-# Step 4: Calculate rolling 12-month return volatility
-volatility = monthly_returns.rolling(window=12).std()
+# Perform linear regression
+regression = LinearRegression(fit_intercept=False).fit(X_one, y_one)
 
+# Extracting coefficients
+coefficients = regression.coef_
 
-# Step 5: Assign deciles each month based on volatility
-# Sample function to assign deciles
-def assign_decile(vol):
-    # Drop NaN values
-    vol = vol.dropna()
-    # Check if there are enough unique values to create deciles
-    if len(vol.unique()) < 10:
-        # Handle the case where there are not enough unique values
-        return pd.Series([pd.NA] * len(vol), index=vol.index)
-    return pd.qcut(vol, 10, labels=False, duplicates='drop') + 1
+# Creating the regression equation string
+equation = f'SENT = {coefficients[0]:.4f} * cefd + {coefficients[1]:.4f} * nipo + {coefficients[2]:.4f} * ripo + {coefficients[3]:.4f} * pdnd + {coefficients[4]:.4f} * s'
+print("Linear Regression Equation for SENT:")
+print(equation)
 
-# Assuming 'volatility' is your DataFrame
-# Apply the assign_decile function row-wise
-deciles = volatility.apply(assign_decile, axis=1).dropna(how='all')
+# Convert 'yearmo' to a numerical format for regression
+data['yearmo'] = pd.to_numeric(data['yearmo'])
 
-# Assuming 'volatility' is your DataFrame
-# Apply the assign_decile function row-wise
-deciles = volatility.apply(assign_decile, axis=1).dropna(how='all')
+# Prepare the data
+X_two = data[['pdnd_change', 'ripo_change', 'nipo_change', 'cefd_change', 's_change', 'yearmo']]
+y_two = data['SentimentChangesIndex']
 
+# Standardize or normalize predictor variables
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(data[['pdnd_change', 'ripo_change', 'nipo_change', 'cefd_change', 's_change', 'yearmo']])
 
-deciles = volatility.apply(assign_decile, axis=1).dropna(how='all')
+# Fit linear regression model
+model = LinearRegression(fit_intercept=False)  # No intercept
+model.fit(X_scaled, y_two)
 
+# Get coefficients
+coefficients = model.coef_
 
-# Step 6: Calculate the average return for each decile portfolio each month
-def calc_portfolio_returns(returns, deciles):
-    portfolios = {}
-    for date in deciles.index:
-        if date in returns.index:
-            returns_on_date = returns.loc[date]
-            deciles_on_date = deciles.loc[date]
-            for decile in range(1, 11):
-                if decile not in portfolios:
-                    portfolios[decile] = []
-                decile_returns = returns_on_date[deciles_on_date == decile]
-                portfolios[decile].append(decile_returns.mean())
-    return portfolios
+# Creating the regression equation string
+equation_two = f'SentimentChangesIndex = {coefficients[0]:.4f} * pdnd_change + {coefficients[1]:.4f} * ripo_change + {coefficients[2]:.4f} * cefd_change + {coefficients[3]:.4f} * s_change'
+print("Linear Regression Equation for SENT changes:")
+print(equation_two)
 
-
-portfolio_returns = calc_portfolio_returns(monthly_returns, deciles)
-
-# Convert portfolio returns to DataFrame
-portfolio_returns_df = pd.DataFrame(portfolio_returns, index=deciles.index)
-
-# Step 7: Plot the portfolio returns
-plt.figure(figsize=(12, 8))
-for decile in portfolio_returns_df.columns:
-    plt.plot(portfolio_returns_df.index, portfolio_returns_df[decile], label=f'Decile {decile}')
-
-plt.title('Decile Portfolio Returns Based on Volatility')
-plt.xlabel('Date')
-plt.ylabel('Average Return')
-plt.legend()
+# Plot SentimentChangesIndex versus yearmo
+plt.figure(figsize=(10, 6))
+plt.plot(data['yearmo'], data['SentimentChangesIndex'], marker='o', linestyle='-', color='b', markersize=3)
+plt.title('Sentiment Changes Index over Time')
+plt.xlabel('Year-Month (yearmo)')
+plt.ylabel('Sentiment Changes Index')
+plt.xticks(rotation=45)
 plt.grid(True)
-plt.show()
-
-# Step 8: Sentiment Betas: Cross-Sectional Effects of Sentiment Changes
-# Example proxy data for sentiment index and ETF flows
-dates = pd.date_range(start='2000-01-01', end='2023-12-31', freq='M')
-np.random.seed(0)
-sentiment_index = np.random.normal(size=len(dates))
-etf_flows = np.random.normal(size=len(dates))
-
-# Convert to DataFrame
-proxy_data = pd.DataFrame({'SentimentIndex': sentiment_index, 'ETFFlows': etf_flows}, index=dates)
-
-# Run regressions and plot coefficients
-results = {}
-
-for decile in range(1, 11):
-    y = portfolio_returns_df[decile]
-    X = proxy_data[['SentimentIndex', 'ETFFlows']]
-    X['MarketReturn'] = portfolio_returns_df['MarketReturn']
-    X = sm.add_constant(X)
-
-    model = sm.OLS(y, X).fit()
-    results[decile] = model.params
-
-# Convert results to DataFrame
-coefficients_df = pd.DataFrame(results).T
-
-# Plot coefficients for SentimentIndex and ETFFlows
-plt.figure(figsize=(12, 8))
-for col in ['SentimentIndex', 'ETFFlows']:
-    plt.plot(coefficients_df.index, coefficients_df[col], label=col)
-
-plt.title('Coefficients on Sentiment Indices and ETF Flows')
-plt.xlabel('Decile Portfolio')
-plt.ylabel('Coefficient')
-plt.legend()
-plt.grid(True)
-plt.show()
-
-######## ETF PART ######
-
-# Example proxy data
-dates = pd.date_range(start='2000-01-01', end='2023-12-31', freq='M')
-np.random.seed(0)
-sentiment_index = np.random.normal(size=len(dates))
-etf_flows = np.random.normal(size=len(dates))
-
-# Convert to DataFrame
-proxy_data = pd.DataFrame({'SentimentIndex': sentiment_index, 'ETFFlows': etf_flows}, index=dates)
-
-# portfolio_returns_df already contains returns of 10 portfolios
-# Add value-weighted market return (assuming market_returns is a Series)
-market_returns = np.random.normal(size=len(dates))  # Replace with actual market return data
-portfolio_returns_df['MarketReturn'] = market_returns
-
-results = {}
-
-for decile in range(1, 11):
-    y = portfolio_returns_df[decile]
-    X = proxy_data[['SentimentIndex', 'ETFFlows']]
-    X['MarketReturn'] = portfolio_returns_df['MarketReturn']
-    X = sm.add_constant(X)
-
-    model = sm.OLS(y, X).fit()
-    results[decile] = model.params
-
-# Convert results to DataFrame
-coefficients_df = pd.DataFrame(results).T
-
-# Plot coefficients for SentimentIndex and ETFFlows
-plt.figure(figsize=(12, 8))
-for col in ['SentimentIndex', 'ETFFlows']:
-    plt.plot(coefficients_df.index, coefficients_df[col], label=col)
-
-plt.title('Coefficients on Sentiment Indices and ETF Flows')
-plt.xlabel('Decile Portfolio')
-plt.ylabel('Coefficient')
-plt.legend()
-plt.grid(True)
+plt.tight_layout()
 plt.show()
